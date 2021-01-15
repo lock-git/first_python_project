@@ -7,14 +7,18 @@ from collections import defaultdict
 import numpy as np
 from pyspark import StorageLevel
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
 from sklearn.metrics import roc_auc_score
 
+# 分组
+group_all_dict = {'d_platform': ['0', '1'],
+                  'd_contenttype': ['1', '2'],
+                  'd_citylevel': ['1', '2', '3'],
+                  'e_context': ['-1', '1', '2', '3', '4', '5', 'A', 'B', 'C', 'D',  'N', 'T']}
 
-platform_list = ['0', '1']
-content_type_list = ['1', '2']
-city_level_list = ['1', '2', '3']
-context_list = ['0', '1', '2', '3', '4', '5', '6', '7', '-1', 'A', 'B', 'C', 'D', 'E', 'N', 'T']
-group_all_dict = {'d_platform': platform_list,'d_contenttype': content_type_list,'d_citylevel': city_level_list,'e_context': context_list}
+# 分桶
+bucket_dict = {"d_activate_utilnow": [1, 7, 15, 30, 45],
+               "e_ctime": [604800, 1296000, 2592000, 5184000]}
 
 url = "jdbc:mysql://10.10.11.126:3306/jdd_portrait?useUnicode=true&characterEncoding=utf8&useSSL=false&autoReconnect=true&serverTimezone=CST"
 properties = {"driver": "com.mysql.cj.jdbc.Driver", "user": "jdd_portrait_rw", "password": "z7tw_Ao3"}
@@ -43,7 +47,7 @@ def auc_hourly_statistics(sparkSession, statistics_day,hour):
                           begintime,
                           probability
                   FROM bigdata_mtm.motor_model_online_feature
-                  WHERE p_day='{statistics_day}'
+                  WHERE p_day='{statistics_day.replace("-","")}'
                     AND p_hour='{hour}'
                     AND p_appkey='moto' ) AS a
                INNER JOIN
@@ -53,7 +57,7 @@ def auc_hourly_statistics(sparkSession, statistics_day,hour):
                          batchtime,
                          begintime
                   FROM bigdata_mtm.motor_recommend_deviceid_item_median_info
-                  WHERE p_day='{statistics_day}'
+                  WHERE p_day='{statistics_day.replace("-","")}'
                     AND action_type IN(1,0)
                     AND item_type=0
                     AND batchtime!=0) AS b ON a.deviceid=b.deviceid
@@ -64,6 +68,15 @@ def auc_hourly_statistics(sparkSession, statistics_day,hour):
     print(f"base_data_hour_sql ===> {base_data_hour_sql} \n")
 
     base_data_hour_df = sparkSession.sql(base_data_hour_sql)
+
+    if base_data_hour_df.rdd.isEmpty():
+        print(f"hourly statistics auc/gauc: sample count is 0 ")
+        hour_null_auc_df = sparkSession.createDataFrame([(statistics_day, str(hour), 0, 0)], ["s_pday", "s_hour", "n_auc_flag", "n_value"])
+        hour_null_gauc_df = sparkSession.createDataFrame([(statistics_day, str(hour), 1, 0)], ["s_pday", "s_hour", "n_auc_flag", "n_value"])
+        hour_null_df = hour_null_auc_df.union(hour_null_gauc_df)
+        hour_null_df.write.jdbc(url=url, mode="append", table=f"{m_table_hour}", properties=properties)
+        return
+
     hour_df = base_data_hour_df.rdd.map(lambda t: (t[0], int(t[2]), json_trans(t[3]))).toDF(["deviceid", "action_type", "click_score"])
     hour_df.persist(StorageLevel.MEMORY_ONLY_SER)
     print(f"hour {hour} data counts is  {hour_df.count()}")
@@ -79,17 +92,37 @@ def auc_statistics(sparkSession, statistics_day):
     """statistics auc"""
 
     base_data_sql = f"""
-    SELECT deviceid,
-           action_type,
-           d_platform,
-           d_contenttype,
-           d_citylevel,
-           e_context,
-           e_ctime,
-           d_activate_utilnow,
-           cast(predict_click_score AS DOUBLE) AS click_score 
-    FROM  bigdata_mtm.motor_rank_model_offline_feature
-    WHERE p_appkey='moto' AND  p_day='{statistics_day}' AND deviceid not in ('','null','NULL') 
+                        SELECT deviceid,
+                           cast(action_type AS STRING) AS action_type,
+                           cast(d_platform AS STRING) AS d_platform,
+                           cast(d_contenttype AS STRING) AS d_contenttype,
+                           cast(d_citylevel AS STRING) AS d_citylevel,
+                           CASE
+                               WHEN e_context='6' THEN 'A'
+                               WHEN e_context='7' THEN 'B'
+                               WHEN e_context='8' THEN 'C'
+                               WHEN e_context='9' THEN 'D'
+                               WHEN e_context='10' THEN 'N'
+                               WHEN e_context='11' THEN 'T'
+                               ELSE e_context
+                           END AS e_context,
+                           cast(e_ctime AS STRING) AS e_ctime,
+                           cast(d_activate_utilnow AS STRING) AS d_activate_utilnow,
+                           click_score
+                    FROM
+                      (SELECT deviceid,
+                              action_type,
+                              cast(d_platform AS int) AS d_platform,
+                              cast(d_contenttype AS INT) AS d_contenttype,
+                              cast(d_citylevel AS int) AS d_citylevel,
+                              cast(cast(e_context AS int) AS STRING)AS e_context,
+                              cast(e_ctime AS BIGINT) AS e_ctime,
+                              cast(d_activate_utilnow AS INT) AS d_activate_utilnow,
+                              cast(predict_click_score AS DOUBLE) AS click_score
+                       FROM bigdata_mtm.motor_rank_model_offline_feature_lgbm
+                       WHERE p_appkey='moto'
+                         AND p_day='{statistics_day.replace("-","")}'
+                         AND deviceid NOT IN ('','null','NULL') ) AS m
     """
     print(f"base_data_sql ===> {base_data_sql} \n")
 
@@ -106,7 +139,7 @@ def auc_statistics(sparkSession, statistics_day):
     """分组 auc (platform, contentType, cityLevel, context)"""
     cal_sub_auc(base_data_df, statistics_day, m_table_pay)
 
-    """[数据还没有?] 分桶 auc : ctime(文章发布距今时间，需分桶) activeUntilNow(用户激活距今时间，需分桶))"""
+    """分桶 auc : ctime(文章发布距今时间) activeUntilNow(用户激活距今时间) """
     cal_bucket_auc(base_data_df, statistics_day, m_table_pay)
 
 def cal_sub_auc(base_data_df, statistics_day, m_table):
@@ -126,8 +159,8 @@ def cal_sub_auc(base_data_df, statistics_day, m_table):
             # 判断一下，filter之后数据是否为空
             if filter_date_rdd.isEmpty():
                 print(f"sub_auc: {feature_key} == {feature} , filter_auc_value ===> #为空值# ")
-                filter_into_auc_df = sparkSession.createDataFrame([(statistics_day, feature_key, feature, 0, 0)],
-                                                                  ["s_pday", "s_feature", "s_group", "n_auc_flag","n_value"])
+                filter_into_auc_df = sparkSession.createDataFrame([(statistics_day, feature_key, feature, 1, 0, 0)],
+                                                                  ["s_pday", "s_feature", "s_group", "n_group_flag", "n_auc_flag","n_value"])
                 filter_into_auc_df.write.jdbc(url=url, mode="append", table=f"{m_table}",
                                               properties=properties)
             else:
@@ -141,6 +174,7 @@ def cal_sub_auc(base_data_df, statistics_day, m_table):
                     filter_label_list.append(int(two_score[0]))
                     filter_score_list.append(float(two_score[1]))
 
+                filter_auc_value = 0
                 try:
                     filter_auc_value = roc_auc_score(np.array(filter_label_list), np.array(filter_score_list))
                 except Exception as e:
@@ -148,11 +182,11 @@ def cal_sub_auc(base_data_df, statistics_day, m_table):
 
                 # 保存
                 filter_into2_auc_df = sparkSession.createDataFrame(
-                    [(statistics_day, feature_key, feature, 0, '%.6f' % float(filter_auc_value))],
-                    ["s_pday", "s_feature", "s_group", "n_auc_flag", "n_value"])
+                    [(statistics_day, feature_key, feature, 1, 0, '%.6f' % float(filter_auc_value))],
+                    ["s_pday", "s_feature", "s_group", "n_group_flag", "n_auc_flag", "n_value"])
                 filter_into2_auc_df.write.jdbc(url=url, mode="append", table=f"{m_table}",
                                                properties=properties)
-                print(f"sub_auv : {feature_key} -- {feature}  to mysql success , filter_auc_value = {filter_auc_value} ")
+                print(f"sub_auc : {feature_key} -- {feature}  to mysql success , filter_auc_value = {filter_auc_value} ")
 
                 # 清空list
                 filter_auc_row.clear()
@@ -172,6 +206,7 @@ def cal_all_auc(base_data_df, statistics_day, m_table, hour_flag):
         label_list.append(int(two_score[0]))
         score_list.append(float(two_score[1]))
 
+    all_auc_value=0
     try:
         all_auc_value = roc_auc_score(np.array(label_list), np.array(score_list))
     except Exception as e:
@@ -180,8 +215,8 @@ def cal_all_auc(base_data_df, statistics_day, m_table, hour_flag):
     print(f"all_auc_value:  {all_auc_value} \n")
 
     if str(hour_flag) == "-1":
-        all_into_auc_df = sparkSession.createDataFrame([(statistics_day, 'all', '1', 0, '%.6f' % float(all_auc_value))],
-                                                       ["s_pday", "s_feature", "s_group", "n_auc_flag", "n_value"])
+        all_into_auc_df = sparkSession.createDataFrame([(statistics_day, 'all', '无', 0, 0, '%.6f' % float(all_auc_value))],
+                                                       ["s_pday", "s_feature", "s_group","n_group_flag", "n_auc_flag", "n_value"])
         all_into_auc_df.write.jdbc(url=url, mode="append", table=f"{m_table}", properties=properties)
     else:
         all_into_auc_df = sparkSession.createDataFrame([(statistics_day, str(hour_flag), 0, '%.6f' % float(all_auc_value))],
@@ -225,20 +260,27 @@ def cal_group_auc(base_data_df, statistics_day, m_table, hour_flag):
             for label_score in v:
                 label_list.append(label_score[0])
                 score_list.append(label_score[1])
-            auc = roc_auc_score(np.asarray(label_list), np.asarray(score_list))
+            auc = 0
+            try:
+                auc = roc_auc_score(np.asarray(label_list), np.asarray(score_list))
+            except Exception as e:
+                print(f"statistics g_auc auc stage exception ==> {e}")
             total_auc += auc * len(v)
             impression_total += len(v)
             label_list.clear()
             score_list.clear()
 
-    group_auc = float(total_auc) / float(impression_total)
-    group_auc = '%.6f' % group_auc
+    if impression_total != 0:
+        group_auc = float(total_auc) / float(impression_total)
+        group_auc = '%.6f' % group_auc
+    else:
+        group_auc = 0
     print(f"group_auc: device_total = {len(device_label_score_dict)} ,device_cal = {total_device} ,total_auc = {total_auc} ,impression_total = {impression_total} ,gauc = {group_auc} \n")
 
     # 保存好 g_auc 的数据
     if str(hour_flag) == "-1":
-        group_auc_df = sparkSession.createDataFrame([(statistics_day, 'all', 1, 1, group_auc)],
-                                                    ["s_pday", "s_feature", "s_group", "n_auc_flag", "n_value"])
+        group_auc_df = sparkSession.createDataFrame([(statistics_day, 'all', '无', 0, 1, group_auc)],
+                                                    ["s_pday", "s_feature", "s_group", "n_group_flag", "n_auc_flag", "n_value"])
         group_auc_df.write.jdbc(url=url, mode="append", table=f"{m_table}", properties=properties)
     else:
         all_into_auc_df = sparkSession.createDataFrame([(statistics_day, str(hour_flag), 1, group_auc)],
@@ -253,7 +295,66 @@ def cal_group_auc(base_data_df, statistics_day, m_table, hour_flag):
 def cal_bucket_auc(base_data_df, statistics_day, m_table):
     """Calculate bucket auc"""
 
-    return 0
+    global bucket_rdd, bucket_flag
+    for feature_key in bucket_dict.keys():
+        num_list = bucket_dict.get(feature_key)
+        bucket_df1 = base_data_df.select(feature_key, "action_type", "click_score")
+        for i in range(len(num_list) + 1):
+            if i == 0:
+                bucket_flag = f"(-∞,{num_list[i]})"
+                try:
+                    bucket_rdd = bucket_df1.rdd.filter(lambda r: int(r[0]) < int(num_list[i]))
+                except Exception as e:
+                    print(f"bucket stage exception ==> {e}")
+            elif i == (len(num_list)):
+                bucket_flag = f"[{num_list[i-1]},+∞)"
+                try:
+                    bucket_rdd = bucket_df1.rdd.filter(lambda r: int(r[0]) >= int(num_list[i-1]))
+                except Exception as e:
+                    print(f"bucket stage exception ==> {e}")
+            else:
+                bucket_flag = f"[{num_list[i-1]},{num_list[i]})"
+                try:
+                    bucket_rdd = bucket_df1.rdd.filter(lambda r: int(r[0]) >= int(num_list[i-1]) and int(r[0]) < int(num_list[i]))
+                except Exception as e:
+                    print(f"bucket stage exception ==> {e}")
+
+            # 判断分桶之后是否为空
+            if bucket_rdd.isEmpty():
+                print(f"bucket_auc: {feature_key} == {bucket_flag} , bucket_auc_value ===> #为空值# ")
+                bucket_into_auc_df = sparkSession.createDataFrame([(statistics_day, feature_key, bucket_flag, 2, 0, 0)],
+                                                                  ["s_pday", "s_feature", "s_group", "n_group_flag", "n_auc_flag","n_value"])
+                bucket_into_auc_df.write.jdbc(url=url, mode="append", table=f"{m_table}", properties=properties)
+
+            else:
+                bucket_rdd.toDF().show(2)
+                bucket_auc_df = bucket_rdd.toDF().select("action_type", "click_score")
+                bucket_auc_row = bucket_auc_df.collect()
+
+                bucket_label_list = []
+                bucket_score_list = []
+                for two_score in bucket_auc_row:
+                    bucket_label_list.append(int(two_score[0]))
+                    bucket_score_list.append(float(two_score[1]))
+
+                bucket_auc_value = 0
+                try:
+                    bucket_auc_value = roc_auc_score(np.array(bucket_label_list), np.array(bucket_score_list))
+                except Exception as e:
+                    print(f"statistics bucket auc stage exception ==> {e}")
+
+                # 保存
+                filter_into2_auc_df = sparkSession.createDataFrame(
+                    [(statistics_day, feature_key, bucket_flag, 2, 0, '%.6f' % float(bucket_auc_value))],
+                    ["s_pday", "s_feature", "s_group", "n_group_flag", "n_auc_flag", "n_value"])
+                filter_into2_auc_df.write.jdbc(url=url, mode="append", table=f"{m_table}",
+                                               properties=properties)
+                print(f"bucket_auc : {feature_key} -- {bucket_flag}  to mysql success , filter_auc_value = {bucket_auc_value} ")
+
+                # 清空list
+                bucket_auc_row.clear()
+                bucket_label_list.clear()
+                bucket_score_list.clear()
 
 def json_trans(json_str):
     """json_str transform """
@@ -294,13 +395,24 @@ if __name__ == "__main__":
     """ 0 == [T-1] auc/g_auc  , 1 == [H-1] auc/g_auc """
 
     if len(sys.argv) == 2 and str(sys.argv[1]) == "0":
-        # yesterday = (datetime.datetime.now() + datetime.timedelta(days=-1)).strftime('%Y%m%d')
-        yesterday = '20201214'
+        yesterday = (datetime.datetime.now() + datetime.timedelta(days=-1)).strftime('%Y-%m-%d')
+        # yesterday = '2020-12-14'
         print(f"[day T-1] statistics day is  {yesterday} \n")
         auc_statistics(sparkSession, yesterday)
 
     elif len(sys.argv) == 2 and str(sys.argv[1]) == "1":
-        today = (datetime.datetime.now()).strftime('%Y%m%d')
-        hour = (datetime.datetime.now() + datetime.timedelta(hours=-1)).strftime('%H')
+        today = (datetime.datetime.now() + datetime.timedelta(hours=-2)).strftime('%Y-%m-%d')
+        hour = (datetime.datetime.now() + datetime.timedelta(hours=-2)).strftime('%H')
+        print(f"[hour H-1] statistics day is  {today}  hour is {hour}\n")
+        auc_hourly_statistics(sparkSession, today, hour)
+
+    elif len(sys.argv) == 3 and str(sys.argv[1]) == "0":
+        yesterday = str(sys.argv[2])
+        print(f"[day T-1] statistics day is  {yesterday} \n")
+        auc_statistics(sparkSession, yesterday)
+
+    elif len(sys.argv) == 4 and str(sys.argv[1]) == "1":
+        today = str(sys.argv[2])
+        hour = str(sys.argv[3])
         print(f"[hour H-1] statistics day is  {today}  hour is {hour}\n")
         auc_hourly_statistics(sparkSession, today, hour)
