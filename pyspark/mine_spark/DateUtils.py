@@ -165,3 +165,8 @@ j_obj = json.loads(json_str)
 print(j_obj["values"])
 print(j_obj["values"][1])
 print(j_obj["type"])
+
+a = {'cbr300': 0.9790462842829708, '贩售': 0.8909096790577531, '加速': 0.6249048569763798, '国内': 0.5022938587331897, '超清': 0.1697070890458812}
+b = json.dumps(a, ensure_ascii=False)
+print(str(b))
+print(type(b))
