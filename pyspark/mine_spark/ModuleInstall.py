@@ -20,7 +20,8 @@ group_all_dict = {'d_platform': ['0', '1'],
 bucket_dict = {"d_activate_utilnow": [1, 7, 15, 30, 45],
                "e_ctime": [604800, 1296000, 2592000, 5184000]}
 
-url = "jdbc:mysql://10.10.11.126:3306/jdd_portrait?useUnicode=true&characterEncoding=utf8&useSSL=false&autoReconnect=true&serverTimezone=CST"
+url = "jdbc:mysql://10.10.11.126:3306/jdd_portrait?useUnicode=true&characterEncoding=utf8&useSSL=false&autoReconnect" \
+      "=true&serverTimezone=CST "
 properties = {"driver": "com.mysql.cj.jdbc.Driver", "user": "jdd_portrait_rw", "password": "z7tw_Ao3"}
 m_table_pay = "motor_model_auc_offline_monitor"
 m_table_hour = "motor_model_auc_online_monitor"
@@ -87,7 +88,7 @@ def auc_hourly_statistics(sparkSession, statistics_day, hour):
 if __name__ == "__main__":
 
     sparkSession = SparkSession.builder \
-        .appName("FlowModelAUC") \
+        .appName("ModuleInstall") \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
         .config("hive.metastore.uris", "thrift://node001.cdh.jdd.com:9083") \
         .config("spark.dynamicAllocation.enabled", "false") \
