@@ -174,3 +174,21 @@ if '__main__' == __name__:
     # a5 = hbase_offline.get_rows("CREDIT_V1_EXT_VAR", report_id)
     # b4 = hbase_offline.put_rows("CREDIT_V1_MOB_VAR", "test_offline1"[::-1],a4)
     # b5 = hbase_offline.put_rows("CREDIT_V1_EXT_VAR", "test_offline2"[::-1], a5)
+
+    # a=np.random.rand(5)
+    # print(a)
+    # [ 0.64061262  0.8451399   0.965673    0.89256687  0.48518743]
+    #
+    # print(a[-1]) ###取最后一个元素
+    # [0.48518743]
+    #
+    # print(a[:-1])  ### 除了最后一个取全部
+    # [ 0.64061262  0.8451399   0.965673    0.89256687]
+    #
+    # print(a[::-1]) ### 取从后向前（相反）的元素
+    # [ 0.48518743  0.89256687  0.965673    0.8451399   0.64061262]
+    #
+    # print(a[2::-1]) ### 取从下标为2的元素翻转读取
+    # [ 0.965673  0.8451399   0.64061262]
+
+
