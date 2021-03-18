@@ -156,14 +156,20 @@ if '__main__' == __name__:
     # report_id = "24899000"[::-1]
     report_id = "24890009"[::-1]
     hbase_offline = Hbase()
-    hbase_online = Hbase(HBASE_MASTER_ONLINE)
 
     # a = hbase_online.get_rows("API_VAR_CCL_EXT_V1", report_id)
     # b = hbase_online.put_rows("api_score_ccl_ext_v1_test", "test_ccl_ext_v1_0_case_1"[::-1],a)
     # print(a)
 
-    a = hbase_online.scan_table('test_api_var_tzhi_v1')
+    a = hbase_offline.scan_table('ANTI_INFO')
     print(a)
+
+    b = hbase_offline.get_rows("ANTI_INFO", "deviceId_qk:test111", False, "info")
+    print(b)
+
+    # hbase_offline.put_row("ANTI_INFO", "deviceId_qk:test111", "uids", "11,22,33", "info")
+    # hbase_offline.put_row("ANTI_INFO", "deviceId_qk:test222", "uids", "44,55,66", "info")
+    # hbase_offline.put_row("ANTI_INFO", "ip:3333", "type", "1", "info")
 
     # a1 = hbase_online.get_rows("API_VAR_JXL_INS", mobile_id)
     # a2 = hbase_online.get_rows("API_VAR_EXT_INS", report_id)
@@ -190,5 +196,3 @@ if '__main__' == __name__:
     #
     # print(a[2::-1]) ### 取从下标为2的元素翻转读取
     # [ 0.965673  0.8451399   0.64061262]
-
-
