@@ -1,5 +1,5 @@
 import queue
-import blog_spider
+import py_concurrent.blog_spider as blog_spider
 import time
 import random
 import threading

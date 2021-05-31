@@ -3,7 +3,7 @@ import gevent.monkey
 gevent.monkey.patch_all()
 
 import gevent
-import blog_spider
+import py_concurrent.blog_spider as blog_spider
 import time
 
 begin = time.time()

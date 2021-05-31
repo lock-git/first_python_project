@@ -1,6 +1,6 @@
 import asyncio
 import aiohttp
-import blog_spider
+import py_concurrent.blog_spider as blog_spider
 
 
 async def async_craw(url):

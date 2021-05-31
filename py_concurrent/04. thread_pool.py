@@ -1,6 +1,6 @@
 
 import concurrent.futures
-import blog_spider
+import py_concurrent.blog_spider as blog_spider
 
 # craw
 with concurrent.futures.ThreadPoolExecutor() as pool:

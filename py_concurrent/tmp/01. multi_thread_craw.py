@@ -1,4 +1,4 @@
-import blog_spider
+import py_concurrent.blog_spider as blog_spider
 import threading
 import time
 
