@@ -1,13 +1,27 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# 读取excel数据
-# 小罗的需求，取第二行以下的数据，然后取每行前13列的数据
-import xlrd
-data = xlrd.open_workbook('position.xlsx') # 打开xls文件
-table = data.sheets()[0] # 打开第一张表
-nrows = table.nrows # 获取表的行数
-print(nrows)
-for i in range(nrows): 	 # 循环逐行打印
-	if i == 0: # 跳过第一行
-		continue
-	print(table.row_values(i))  # 取前十三列
+from collections import defaultdict
+
+
+
+user_dict = {}
+users = ["baoshan1", "baoshan2", "baoshan3","baoshan1", "baoshan2", "baoshan2"]
+for user in users:
+    if user not in user_dict:
+        user_dict[user] = 1
+    else:
+        user_dict[user] += 1
+print(user_dict)
+
+
+user_dict = defaultdict(int)
+users = ["baoshan1", "baoshan2", "baoshan3","baoshan1", "baoshan2", "baoshan2"]
+for user in users:
+    user_dict[user] += 1
+print(user_dict)
+
+
+user_dict = {}
+users = ["baoshan1", "baoshan2", "baoshan3","baoshan1", "baoshan2", "baoshan2"]
+for user in users:
+    user_dict.setdefault(user, 0)
+    user_dict[user] += 1
+print(user_dict)
